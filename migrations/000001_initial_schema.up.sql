@@ -1,6 +1,10 @@
 BEGIN;
 
 CREATE TYPE user_role            AS ENUM ('customer', 'admin');
+CREATE TYPE order_status         AS ENUM ('pending', 'confirmed', 'shipped', 'delivered', 'cancelled');
+CREATE TYPE payment_status       AS ENUM ('pending', 'paid', 'failed', 'refunded');
+CREATE TYPE notification_status  AS ENUM ('pending', 'sent', 'failed');
+CREATE TYPE notification_channel AS ENUM ('email', 'sms', 'push');
 
 
 CREATE TABLE users (
