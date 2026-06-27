@@ -5,6 +5,8 @@
 *.so
 *.dylib
 bin/
+/main
+/server
 
 # Go build output
 *.o
