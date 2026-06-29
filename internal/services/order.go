@@ -23,7 +23,7 @@ import (
 const idempotencyTTL = 5 * time.Minute
 
 type OrderService interface {
-	CreateOrder(ctx context.Context, req dto.CreateOrderRequest) (dto.OrderResponse, error)
+	CreateOrder(ctx context.Context, userID int, req dto.CreateOrderRequest) (dto.OrderResponse, error)
 }
 
 type orderService struct {
@@ -47,7 +47,7 @@ func NewOrderService(
 	}
 }
 
-func (s *orderService) CreateOrder(ctx context.Context, req dto.CreateOrderRequest) (dto.OrderResponse, error) {
+func (s *orderService) CreateOrder(ctx context.Context, userID int, req dto.CreateOrderRequest) (dto.OrderResponse, error) {
 	// 1. Reject duplicate product lines in the same request.
 	seen := make(map[int]struct{}, len(req.Items))
 	for _, item := range req.Items {
@@ -58,7 +58,7 @@ func (s *orderService) CreateOrder(ctx context.Context, req dto.CreateOrderReque
 	}
 
 	// 2. Reserve the cart's idempotency key transiently.
-	key := idempotencyKey(req.UserID, req.Items)
+	key := idempotencyKey(userID, req.Items)
 	acquired, err := s.idempotency.Reserve(ctx, key, idempotencyTTL)
 	if err != nil {
 		// Degrade open: prefer availability over strict dedup when the store is
@@ -105,7 +105,7 @@ func (s *orderService) CreateOrder(ctx context.Context, req dto.CreateOrderReque
 	})
 
 	order := models.Order{
-		UserID:     req.UserID,
+		UserID:     userID,
 		Status:     models.OrderStatusPending,
 		TotalPrice: total,
 		Items:      items,

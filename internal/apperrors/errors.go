@@ -7,9 +7,10 @@ import (
 
 // Sentinel domain errors. Handlers map these to HTTP status codes via errors.Is.
 var (
-	ErrUserNotFound      = errors.New("user not found")
-	ErrDuplicateOrder    = errors.New("duplicate order")
-	ErrDuplicateLineItem = errors.New("duplicate line item")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrDuplicateOrder     = errors.New("duplicate order")
+	ErrDuplicateLineItem  = errors.New("duplicate line item")
+	ErrInvalidCredentials = errors.New("invalid email or password")
 )
 
 // ProductNotFoundError is returned when an order references a product that does

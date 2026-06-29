@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/MohamedShetewi/order-processing-system/internal/api/handlers"
+	"github.com/MohamedShetewi/order-processing-system/internal/api/middleware"
+	"github.com/MohamedShetewi/order-processing-system/internal/auth"
 	"github.com/MohamedShetewi/order-processing-system/internal/config"
 	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
 	"github.com/MohamedShetewi/order-processing-system/internal/repository"
@@ -20,8 +22,10 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 
 	r := gin.New()
 
+	tokenManager := auth.NewJWTManager(cfg.JWT.Secret, cfg.JWT.TTL)
+
 	userRepo := repository.NewUserRepository(db)
-	userService := services.NewUserService(userRepo)
+	userService := services.NewUserService(userRepo, tokenManager)
 	userHandler := handlers.NewUserHandler(userService)
 
 	productRepo := repository.NewProductRepository(db)
@@ -39,6 +43,9 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 
 	v1 := r.Group("/api/v1")
 	{
+		authGroup := v1.Group("/auth")
+		authGroup.POST("/login", userHandler.Login)
+
 		users := v1.Group("/users")
 		users.POST("", userHandler.CreateUser)
 		users.GET("/:id", userHandler.GetUser)
@@ -52,6 +59,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 		products.GET("/:id/inventory", productHandler.GetInventory)
 
 		orders := v1.Group("/orders")
+		orders.Use(middleware.Authenticate(tokenManager))
 		orders.POST("", orderHandler.Create)
 	}
 

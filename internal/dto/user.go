@@ -19,6 +19,17 @@ type UpdateUserRequest struct {
 	Role  models.UserRole `json:"role"`
 }
 
+type LoginRequest struct {
+	Email    string `json:"email"    binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+type LoginResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int64  `json:"expires_in"` // seconds until the token expires
+}
+
 type UserResponse struct {
 	ID        int             `json:"id"`
 	Name      string          `json:"name"`
