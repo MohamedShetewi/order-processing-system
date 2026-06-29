@@ -7,7 +7,8 @@ type Product struct {
 	Name        string    `gorm:"not null"`
 	Image       *string
 	Description *string
-	Price       float64   `gorm:"type:numeric(12,2);not null;check:price >= 0"`
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
+	Price       float64    `gorm:"type:numeric(12,2);not null;check:price >= 0"`
+	Inventory   *Inventory `gorm:"foreignKey:ProductID"`
+	CreatedAt   time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`
 }
