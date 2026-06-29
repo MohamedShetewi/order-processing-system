@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE payments DROP COLUMN status;
+ALTER TABLE orders   DROP COLUMN status;
+
+COMMIT;
