@@ -49,6 +49,13 @@ func Authenticate(tokens auth.TokenManager) gin.HandlerFunc {
 	}
 }
 
+// RequireAdmin guards a route so only an authenticated admin may proceed. It is
+// a convenience wrapper over RequireRole so callers (e.g. the router) don't need
+// to import the models package. It must run after Authenticate.
+func RequireAdmin() gin.HandlerFunc {
+	return RequireRole(models.UserRoleAdmin)
+}
+
 // RequireRole guards a route so only an authenticated caller with the given role
 // may proceed. It must run after Authenticate.
 func RequireRole(role models.UserRole) gin.HandlerFunc {

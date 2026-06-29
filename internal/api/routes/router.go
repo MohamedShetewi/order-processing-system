@@ -54,9 +54,13 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 		products := v1.Group("/products")
 		products.GET("", productHandler.List)
 		products.GET("/:id", productHandler.Get)
-		products.POST("", productHandler.Create)
-		products.PUT("/:id", productHandler.Update)
 		products.GET("/:id/inventory", productHandler.GetInventory)
+
+		// Admin-only product management.
+		adminProducts := v1.Group("/products")
+		adminProducts.Use(middleware.Authenticate(tokenManager), middleware.RequireAdmin())
+		adminProducts.POST("", productHandler.Create)
+		adminProducts.PUT("/:id", productHandler.Update)
 
 		orders := v1.Group("/orders")
 		orders.Use(middleware.Authenticate(tokenManager))
