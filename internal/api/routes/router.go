@@ -38,6 +38,8 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 		products.GET("", productHandler.List)
 		products.GET("/:id", productHandler.Get)
 		products.POST("", productHandler.Create)
+		products.PUT("/:id", productHandler.Update)
+		products.GET("/:id/inventory", productHandler.GetInventory)
 	}
 
 	// -------------------------------------------------------------------------

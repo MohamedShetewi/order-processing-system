@@ -18,6 +18,8 @@ type ProductService interface {
 	ListProducts(ctx context.Context, req dto.ListProductsRequest) (dto.ListProductsResponse, error)
 	GetProduct(ctx context.Context, id int) (dto.ProductResponse, error)
 	CreateProduct(ctx context.Context, req dto.CreateProductRequest) (dto.ProductResponse, error)
+	UpdateProduct(ctx context.Context, id int, req dto.UpdateProductRequest) (dto.ProductResponse, error)
+	GetInventory(ctx context.Context, productID int) (dto.InventoryResponse, error)
 }
 
 type productService struct {
@@ -82,6 +84,45 @@ func (s *productService) GetProduct(ctx context.Context, id int) (dto.ProductRes
 		return dto.ProductResponse{}, err
 	}
 	return toProductResponse(product), nil
+}
+
+func (s *productService) UpdateProduct(ctx context.Context, id int, req dto.UpdateProductRequest) (dto.ProductResponse, error) {
+	product, err := s.repo.GetProduct(ctx, id)
+	if err != nil {
+		return dto.ProductResponse{}, err
+	}
+
+	product.Name = req.Name
+	product.Image = req.Image
+	product.Description = req.Description
+	product.Price = req.Price
+
+	if product.Inventory == nil {
+		product.Inventory = &models.Inventory{ProductID: id}
+	}
+	product.Inventory.Quantity = req.Quantity
+
+	if err := s.repo.UpdateProduct(ctx, product); err != nil {
+		return dto.ProductResponse{}, err
+	}
+
+	return toProductResponse(product), nil
+}
+
+func (s *productService) GetInventory(ctx context.Context, productID int) (dto.InventoryResponse, error) {
+	inventory, err := s.repo.GetInventory(ctx, productID)
+	if err != nil {
+		return dto.InventoryResponse{}, err
+	}
+	return toInventoryResponse(inventory), nil
+}
+
+func toInventoryResponse(i *models.Inventory) dto.InventoryResponse {
+	return dto.InventoryResponse{
+		ProductID: i.ProductID,
+		Quantity:  i.Quantity,
+		UpdatedAt: i.UpdatedAt,
+	}
 }
 
 func toProductResponse(p *models.Product) dto.ProductResponse {
