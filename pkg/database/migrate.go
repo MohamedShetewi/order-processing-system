@@ -22,6 +22,9 @@ func Migrate(db *gorm.DB) error {
 	if err != nil {
 		return fmt.Errorf("create migration source: %w", err)
 	}
+	// Close only the source, not the database driver: m.Close() would close the
+	// underlying *sql.DB, which is the shared GORM connection pool the app uses.
+	defer src.Close()
 
 	driver, err := migratepg.WithInstance(sqlDB, &migratepg.Config{})
 	if err != nil {
@@ -32,7 +35,6 @@ func Migrate(db *gorm.DB) error {
 	if err != nil {
 		return fmt.Errorf("create migrator: %w", err)
 	}
-	defer m.Close()
 
 	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("run migrations: %w", err)

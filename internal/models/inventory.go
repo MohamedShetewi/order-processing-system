@@ -9,3 +9,9 @@ type Inventory struct {
 	Quantity  int       `gorm:"default:0;not null;check:quantity >= 0"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
+
+// TableName overrides GORM's default pluralization ("inventories") to match the
+// singular "inventory" table defined in the migrations.
+func (Inventory) TableName() string {
+	return "inventory"
+}
