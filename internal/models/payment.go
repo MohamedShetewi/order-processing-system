@@ -2,13 +2,23 @@ package models
 
 import "time"
 
+type PaymentStatus string
+
+const (
+	PaymentStatusPending  PaymentStatus = "pending"
+	PaymentStatusPaid     PaymentStatus = "paid"
+	PaymentStatusFailed   PaymentStatus = "failed"
+	PaymentStatusRefunded PaymentStatus = "refunded"
+)
+
 type Payment struct {
-	ID             int       `gorm:"primaryKey;autoIncrement"`
-	OrderID        int       `gorm:"not null"`
+	ID             int           `gorm:"primaryKey;autoIncrement"`
+	OrderID        int           `gorm:"not null"`
 	Order          Order
-	IdempotencyKey string    `gorm:"uniqueIndex;not null"`
-	Amount         float64   `gorm:"type:numeric(12,2);not null;check:amount >= 0"`
+	IdempotencyKey string        `gorm:"uniqueIndex;not null"`
+	Status         PaymentStatus `gorm:"type:payment_status;default:pending;not null"`
+	Amount         float64       `gorm:"type:numeric(12,2);not null;check:amount >= 0"`
 	ProviderTxnID  *string
-	CreatedAt      time.Time `gorm:"autoCreateTime"`
-	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
+	CreatedAt      time.Time     `gorm:"autoCreateTime"`
+	UpdatedAt      time.Time     `gorm:"autoUpdateTime"`
 }

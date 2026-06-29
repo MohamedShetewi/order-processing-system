@@ -18,7 +18,7 @@ func dsn(cfg config.DatabaseConfig) string {
 
 
 func New(cfg config.DatabaseConfig) (*gorm.DB, error) {
-	db, err := gorm.Open(postgres.Open(dsn(cfg)), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dsn(cfg)), &gorm.Config{TranslateError: true})
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}

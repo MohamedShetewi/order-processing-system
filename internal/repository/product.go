@@ -11,6 +11,7 @@ import (
 type ProductRepository interface {
 	ListProducts(ctx context.Context, limit, offset int) ([]models.Product, int64, error)
 	GetProduct(ctx context.Context, id int) (*models.Product, error)
+	GetProductsByIDs(ctx context.Context, ids []int) ([]models.Product, error)
 	CreateProduct(ctx context.Context, product *models.Product) error
 	UpdateProduct(ctx context.Context, product *models.Product) error
 	GetInventory(ctx context.Context, productID int) (*models.Inventory, error)
@@ -72,6 +73,16 @@ func (r *productRepository) GetProduct(ctx context.Context, id int) (*models.Pro
 		return nil, err
 	}
 	return &product, nil
+}
+
+func (r *productRepository) GetProductsByIDs(ctx context.Context, ids []int) ([]models.Product, error) {
+	var products []models.Product
+	if err := r.db.WithContext(ctx).
+		Where("id IN ?", ids).
+		Find(&products).Error; err != nil {
+		return nil, err
+	}
+	return products, nil
 }
 
 func (r *productRepository) GetInventory(ctx context.Context, productID int) (*models.Inventory, error) {

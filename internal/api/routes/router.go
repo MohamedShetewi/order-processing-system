@@ -6,6 +6,7 @@ import (
 
 	"github.com/MohamedShetewi/order-processing-system/internal/api/handlers"
 	"github.com/MohamedShetewi/order-processing-system/internal/config"
+	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
 	"github.com/MohamedShetewi/order-processing-system/internal/repository"
 	"github.com/MohamedShetewi/order-processing-system/internal/services"
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,15 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 	productService := services.NewProductService(productRepo)
 	productHandler := handlers.NewProductHandler(productService)
 
+	orderRepo := repository.NewOrderRepository(db)
+	orderService := services.NewOrderService(
+		orderRepo,
+		productRepo,
+		idempotency.NewNoopStore(),
+		services.NewNoopPaymentProcessor(),
+	)
+	orderHandler := handlers.NewOrderHandler(orderService)
+
 	v1 := r.Group("/api/v1")
 	{
 		users := v1.Group("/users")
@@ -40,6 +50,9 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 		products.POST("", productHandler.Create)
 		products.PUT("/:id", productHandler.Update)
 		products.GET("/:id/inventory", productHandler.GetInventory)
+
+		orders := v1.Group("/orders")
+		orders.POST("", orderHandler.Create)
 	}
 
 	// -------------------------------------------------------------------------
