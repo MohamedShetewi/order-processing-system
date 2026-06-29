@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/MohamedShetewi/order-processing-system/internal/api/middleware"
 	"github.com/MohamedShetewi/order-processing-system/internal/apperrors"
 	"github.com/MohamedShetewi/order-processing-system/internal/dto"
 	"github.com/MohamedShetewi/order-processing-system/internal/services"
@@ -20,13 +21,19 @@ func NewOrderHandler(service services.OrderService) *OrderHandler {
 }
 
 func (h *OrderHandler) Create(c *gin.Context) {
+	userID, ok := middleware.UserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
 	var req dto.CreateOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	resp, err := h.service.CreateOrder(c.Request.Context(), req)
+	resp, err := h.service.CreateOrder(c.Request.Context(), userID, req)
 	if err != nil {
 		writeOrderError(c, err)
 		return

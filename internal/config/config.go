@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -11,6 +12,12 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Logger   LoggerConfig
+	JWT      JWTConfig
+}
+
+type JWTConfig struct {
+	Secret string
+	TTL    time.Duration
 }
 
 type ServerConfig struct {
@@ -50,6 +57,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_SSLMODE", "disable")
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("LOG_FORMAT", "json")
+	viper.SetDefault("JWT_SECRET", "dev-insecure-secret-change-me")
+	viper.SetDefault("JWT_TTL", "24h")
 
 	cfg := &Config{
 		Server: ServerConfig{
@@ -67,6 +76,10 @@ func Load() (*Config, error) {
 		Logger: LoggerConfig{
 			Level:  viper.GetString("LOG_LEVEL"),
 			Format: viper.GetString("LOG_FORMAT"),
+		},
+		JWT: JWTConfig{
+			Secret: viper.GetString("JWT_SECRET"),
+			TTL:    viper.GetDuration("JWT_TTL"),
 		},
 	}
 

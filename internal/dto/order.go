@@ -12,8 +12,9 @@ type OrderItemRequest struct {
 }
 
 type CreateOrderRequest struct {
-	UserID int                `json:"user_id" binding:"required"`
-	Items  []OrderItemRequest `json:"items"   binding:"required,min=1,dive"`
+	// UserID is intentionally absent: the owner is derived from the
+	// authenticated token, not the request body.
+	Items []OrderItemRequest `json:"items" binding:"required,min=1,dive"`
 }
 
 type OrderItemResponse struct {
