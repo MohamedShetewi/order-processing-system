@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -10,8 +11,32 @@ import (
 	"github.com/MohamedShetewi/order-processing-system/internal/models"
 )
 
+// ErrNoPendingPayment is returned by GetPendingByOrderID when the order has no
+// payment awaiting processing — it was already finalized (paid/failed) or never
+// existed. Callers treat it as a no-op rather than an error.
+var ErrNoPendingPayment = errors.New("repository: no pending payment for order")
+
 type OrderRepository interface {
 	CreateOrder(ctx context.Context, order *models.Order, payment *models.Payment) error
+
+	// GetPendingByOrderID returns the order's payment while it is still awaiting
+	// processing, or gorm.ErrRecordNotFound once it has reached a terminal state.
+	GetPendingByOrderID(ctx context.Context, orderID int) (models.Payment, error)
+
+	// MarkPaidAndConfirm records a successful charge: payment -> paid (with the
+	// provider transaction id) and order -> confirmed, in one transaction. The
+	// payment update is guarded on status='pending' so it applies at most once.
+	MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) error
+
+	// FailCancelAndRestock records a terminal payment failure: payment -> failed,
+	// order -> cancelled, and the reserved inventory is released — in one
+	// transaction. The payment guard ensures the restock runs at most once.
+	FailCancelAndRestock(ctx context.Context, payment models.Payment) error
+
+	// ListStalePending returns the order ids whose payment has been pending longer
+	// than olderThan, oldest first and capped at limit, so the sweeper can
+	// re-enqueue orders dropped from the queue without loading an unbounded backlog.
+	ListStalePending(ctx context.Context, olderThan time.Duration, limit int) ([]int, error)
 }
 
 type orderRepository struct {
@@ -69,4 +94,88 @@ func (r *orderRepository) CreateOrder(ctx context.Context, order *models.Order, 
 
 		return nil
 	})
+}
+
+func (r *orderRepository) GetPendingByOrderID(ctx context.Context, orderID int) (models.Payment, error) {
+	var payment models.Payment
+	err := r.db.WithContext(ctx).
+		Where("order_id = ? AND status = ?", orderID, models.PaymentStatusPending).
+		First(&payment).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.Payment{}, ErrNoPendingPayment
+	}
+	return payment, err
+}
+
+func (r *orderRepository) MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Guarded transition: only the worker that flips pending->paid proceeds to
+		// advance the order. A concurrent worker or sweep affects zero rows.
+		res := tx.Exec(
+			"UPDATE payments SET status = ?, provider_txn_id = ?, updated_at = now() WHERE id = ? AND status = ?",
+			models.PaymentStatusPaid, txnID, payment.ID, models.PaymentStatusPending,
+		)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			// Already finalized elsewhere; nothing left to do.
+			return nil
+		}
+
+		return tx.Exec(
+			"UPDATE orders SET status = ?, updated_at = now() WHERE id = ? AND status = ?",
+			models.OrderStatusConfirmed, payment.OrderID, models.OrderStatusPending,
+		).Error
+	})
+}
+
+func (r *orderRepository) FailCancelAndRestock(ctx context.Context, payment models.Payment) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The payment guard gates the whole transaction so the order is cancelled
+		// and the stock released exactly once, even under a worker/sweeper overlap.
+		res := tx.Exec(
+			"UPDATE payments SET status = ?, updated_at = now() WHERE id = ? AND status = ?",
+			models.PaymentStatusFailed, payment.ID, models.PaymentStatusPending,
+		)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return nil
+		}
+
+		if err := tx.Exec(
+			"UPDATE orders SET status = ?, updated_at = now() WHERE id = ? AND status = ?",
+			models.OrderStatusCancelled, payment.OrderID, models.OrderStatusPending,
+		).Error; err != nil {
+			return err
+		}
+
+		var items []models.OrderItem
+		if err := tx.Where("order_id = ?", payment.OrderID).Find(&items).Error; err != nil {
+			return err
+		}
+		for _, item := range items {
+			if err := tx.Exec(
+				"UPDATE inventory SET quantity = quantity + ?, updated_at = now() WHERE product_id = ?",
+				item.Quantity, item.ProductID,
+			).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *orderRepository) ListStalePending(ctx context.Context, olderThan time.Duration, limit int) ([]int, error) {
+	var orderIDs []int
+	cutoff := time.Now().Add(-olderThan)
+	err := r.db.WithContext(ctx).
+		Model(&models.Payment{}).
+		Where("status = ? AND created_at < ?", models.PaymentStatusPending, cutoff).
+		Order("created_at ASC"). // oldest stranded first -> forward progress
+		Limit(limit).            // bound the batch (partial idx backs this scan)
+		Pluck("order_id", &orderIDs).Error
+	return orderIDs, err
 }

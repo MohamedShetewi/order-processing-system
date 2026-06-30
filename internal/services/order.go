@@ -30,20 +30,20 @@ type orderService struct {
 	orders      repository.OrderRepository
 	products    repository.ProductRepository
 	idempotency idempotency.Store
-	payments    PaymentProcessor
+	processor   OrderProcessor
 }
 
 func NewOrderService(
 	orders repository.OrderRepository,
 	products repository.ProductRepository,
 	idempotency idempotency.Store,
-	payments PaymentProcessor,
+	processor OrderProcessor,
 ) OrderService {
 	return &orderService{
 		orders:      orders,
 		products:    products,
 		idempotency: idempotency,
-		payments:    payments,
+		processor:   processor,
 	}
 }
 
@@ -123,8 +123,8 @@ func (s *orderService) CreateOrder(ctx context.Context, userID int, req dto.Crea
 		return dto.OrderResponse{}, err
 	}
 
-	// 6. Hand payment off asynchronously.
-	s.payments.Process(order.ID)
+	// 6. Hand the order off for asynchronous fulfillment.
+	s.processor.Process(order.ID)
 
 	return toOrderResponse(&order), nil
 }

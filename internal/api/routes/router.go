@@ -25,8 +25,10 @@ type handlerSet struct {
 }
 
 // NewRouter builds the dependency graph and returns the configured HTTP handler.
-func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store) http.Handler {
-	h := buildHandlers(cfg, db, idemStore)
+// processor is the asynchronous order-fulfillment seam (the worker pool in
+// production, a noop in tests).
+func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, processor services.OrderProcessor) http.Handler {
+	h := buildHandlers(cfg, db, idemStore, processor)
 
 	r := gin.New()
 
@@ -42,7 +44,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store) htt
 }
 
 // buildHandlers wires repositories, services, and handlers together.
-func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store) handlerSet {
+func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, processor services.OrderProcessor) handlerSet {
 	tokenManager := auth.NewJWTManager(cfg.JWT.Secret, cfg.JWT.TTL)
 
 	userRepo := repository.NewUserRepository(db)
@@ -56,7 +58,7 @@ func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store)
 		orderRepo,
 		productRepo,
 		idemStore,
-		services.NewNoopPaymentProcessor(),
+		processor,
 	)
 
 	return handlerSet{
