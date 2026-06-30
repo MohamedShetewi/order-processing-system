@@ -25,8 +25,8 @@ type handlerSet struct {
 }
 
 // NewRouter builds the dependency graph and returns the configured HTTP handler.
-func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
-	h := buildHandlers(cfg, db)
+func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store) http.Handler {
+	h := buildHandlers(cfg, db, idemStore)
 
 	r := gin.New()
 
@@ -42,7 +42,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB) http.Handler {
 }
 
 // buildHandlers wires repositories, services, and handlers together.
-func buildHandlers(cfg *config.Config, db *gorm.DB) handlerSet {
+func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store) handlerSet {
 	tokenManager := auth.NewJWTManager(cfg.JWT.Secret, cfg.JWT.TTL)
 
 	userRepo := repository.NewUserRepository(db)
@@ -55,7 +55,7 @@ func buildHandlers(cfg *config.Config, db *gorm.DB) handlerSet {
 	orderService := services.NewOrderService(
 		orderRepo,
 		productRepo,
-		idempotency.NewNoopStore(),
+		idemStore,
 		services.NewNoopPaymentProcessor(),
 	)
 
