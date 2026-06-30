@@ -2,11 +2,23 @@ package database
 
 import (
 	"fmt"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"github.com/MohamedShetewi/order-processing-system/internal/config"
+)
+
+// Connection-pool bounds. maxOpenConns is kept comfortably below PostgreSQL's
+// default max_connections (100) so a burst of concurrent requests queues for a
+// connection instead of exhausting the server ("too many clients"); the HTTP
+// handlers and the worker pool share this single pool.
+const (
+	maxOpenConns    = 50
+	maxIdleConns    = 25
+	connMaxLifetime = 30 * time.Minute
+	connMaxIdleTime = 5 * time.Minute
 )
 
 func dsn(cfg config.DatabaseConfig) string {
@@ -27,6 +39,11 @@ func New(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get sql.DB: %w", err)
 	}
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
 
 	if err = sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("ping db: %w", err)
