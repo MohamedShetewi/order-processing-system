@@ -1,10 +1,10 @@
-// Package fulfillment drives a single created order from pending to a terminal
+// Package services drives a single created order from pending to a terminal
 // status: it loads the order's pending payment, charges it through the payment
 // gateway with bounded retries and backoff, and records the outcome
 // (paid + order confirmed, or failed + order cancelled + inventory restocked).
 // The worker pool calls Fulfill once per queued order id; the Fulfiller owns no
 // goroutines or queues of its own.
-package fulfillment
+package services
 
 import (
 	"context"

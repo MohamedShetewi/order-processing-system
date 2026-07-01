@@ -19,7 +19,6 @@ import (
 
 	"github.com/MohamedShetewi/order-processing-system/internal/api/routes"
 	"github.com/MohamedShetewi/order-processing-system/internal/config"
-	"github.com/MohamedShetewi/order-processing-system/internal/fulfillment"
 	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
 	"github.com/MohamedShetewi/order-processing-system/internal/payment"
 	"github.com/MohamedShetewi/order-processing-system/internal/repository"
@@ -79,7 +78,7 @@ func New(cfg *config.Config) (*Server, error) {
 	go hub.Run()
 
 	notificationService := services.NewNotificationService(notificationRepo, hub)
-	fulfiller := fulfillment.NewFulfiller(cfg.Worker, gateway, orderRepo, orderRepo, notificationService)
+	fulfiller := services.NewFulfiller(cfg.Worker, gateway, orderRepo, orderRepo, notificationService)
 	pool := workers.NewPool(cfg.Worker, fulfiller)
 	pool.Start()
 

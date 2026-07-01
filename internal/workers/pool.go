@@ -10,7 +10,7 @@ import (
 )
 
 // Runner fulfills a single order — load, charge, and persist the outcome. The
-// pool calls it once per queued order id. *fulfillment.Fulfiller satisfies it.
+// pool calls it once per queued order id. *services.Fulfiller satisfies it.
 type Runner interface {
 	Fulfill(orderID int)
 }
