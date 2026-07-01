@@ -5,9 +5,11 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
 	"github.com/MohamedShetewi/order-processing-system/internal/api/handlers"
+	"github.com/MohamedShetewi/order-processing-system/internal/api/middleware"
 	"github.com/MohamedShetewi/order-processing-system/internal/auth"
 	"github.com/MohamedShetewi/order-processing-system/internal/config"
 	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
@@ -31,6 +33,12 @@ func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, pro
 	h := buildHandlers(cfg, db, idemStore, processor)
 
 	r := gin.New()
+
+	// Registered before r.Use below, so /metrics is excluded from the metrics
+	// middleware chain (Gin snapshots the group's Handlers at registration time).
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	r.Use(middleware.Metrics())
 
 	v1 := r.Group("/api/v1")
 	registerAuthRoutes(v1, h.user)
