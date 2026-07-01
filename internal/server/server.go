@@ -23,7 +23,9 @@ import (
 	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
 	"github.com/MohamedShetewi/order-processing-system/internal/payment"
 	"github.com/MohamedShetewi/order-processing-system/internal/repository"
+	"github.com/MohamedShetewi/order-processing-system/internal/services"
 	"github.com/MohamedShetewi/order-processing-system/internal/workers"
+	"github.com/MohamedShetewi/order-processing-system/internal/ws"
 	"github.com/MohamedShetewi/order-processing-system/pkg/database"
 	"github.com/MohamedShetewi/order-processing-system/pkg/redis"
 )
@@ -66,15 +68,25 @@ func New(cfg *config.Config) (*Server, error) {
 	// and advances their status. It implements services.OrderProcessor, so the
 	// order service hands created orders off to it.
 	orderRepo := repository.NewOrderRepository(db)
+	notificationRepo := repository.NewNotificationRepository(db)
 	gateway := payment.NewFakeGateway(cfg.Worker.GatewayFailureRate)
-	fulfiller := fulfillment.NewFulfiller(cfg.Worker, gateway, orderRepo, orderRepo)
+
+	// Notification hub: fans order-status updates out to subscribed WebSocket
+	// clients. Shared between the fulfiller (which pushes on a terminal transition)
+	// and the router (which registers connections). Run owns the client map on its
+	// own goroutine.
+	hub := ws.NewHub()
+	go hub.Run()
+
+	notificationService := services.NewNotificationService(notificationRepo, hub)
+	fulfiller := fulfillment.NewFulfiller(cfg.Worker, gateway, orderRepo, orderRepo, notificationService)
 	pool := workers.NewPool(cfg.Worker, fulfiller)
 	pool.Start()
 
 	sweeper := workers.NewSweeper(cfg.Worker, orderRepo, pool)
 	sweeper.Start()
 
-	router := routes.NewRouter(cfg, db, idemStore, pool)
+	router := routes.NewRouter(cfg, db, idemStore, pool, hub)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	httpSrv := &http.Server{Addr: addr, Handler: router}
@@ -85,11 +97,13 @@ func New(cfg *config.Config) (*Server, error) {
 		// Stop order is load-bearing: HTTP drains first so no new orders reach a
 		// stopping pool; the sweeper stops before the pool so it can't send on the
 		// pool's jobs channel after Pool.Stop closes it; the pool drains before the
-		// DB/Redis it writes to are closed.
+		// hub so no Notify runs after the hub stops; the hub stops before the
+		// DB/Redis the pool writes to are closed.
 		stoppers: []Stopper{
 			httpStopper{srv: httpSrv, timeout: cfg.Worker.ShutdownTimeout},
 			sweeper,
 			pool,
+			hub,
 			dbStopper{db: db},
 			redisStopper{client: redisClient},
 		},

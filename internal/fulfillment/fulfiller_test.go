@@ -72,33 +72,33 @@ func (s *fakeStore) GetPendingByOrderID(_ context.Context, orderID int) (models.
 	return *p, nil
 }
 
-func (s *fakeStore) MarkPaidAndConfirm(_ context.Context, pay models.Payment, txnID string) error {
+func (s *fakeStore) MarkPaidAndConfirm(_ context.Context, pay models.Payment, txnID string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := s.payments[pay.OrderID]
 	if p == nil || p.Status != models.PaymentStatusPending {
-		return nil // guarded: already finalized
+		return false, nil // guarded: already finalized
 	}
 	p.Status = models.PaymentStatusPaid
 	tx := txnID
 	p.ProviderTxnID = &tx
 	s.orders[pay.OrderID] = models.OrderStatusConfirmed
-	return nil
+	return true, nil
 }
 
-func (s *fakeStore) FailCancelAndRestock(_ context.Context, pay models.Payment) error {
+func (s *fakeStore) FailCancelAndRestock(_ context.Context, pay models.Payment) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := s.payments[pay.OrderID]
 	if p == nil || p.Status != models.PaymentStatusPending {
-		return nil // guarded: restock at most once
+		return false, nil // guarded: restock at most once
 	}
 	p.Status = models.PaymentStatusFailed
 	s.orders[pay.OrderID] = models.OrderStatusCancelled
 	for _, it := range s.items[pay.OrderID] {
 		s.stock[it.ProductID] += it.Quantity
 	}
-	return nil
+	return true, nil
 }
 
 // accessors
@@ -125,6 +125,39 @@ func (s *fakeStore) stockOf(productID int) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stock[productID]
+}
+
+// --- fake notification sender ------------------------------------------------
+
+// fakeNotificationSender is a concurrency-safe stand-in for services.NotificationService.
+// It only records what the fulfiller asked to send — the persist/deliver/mark
+// logic itself lives in, and is tested by, the services package now.
+type fakeNotificationSender struct {
+	mu    sync.Mutex
+	calls []notifyCall
+}
+
+type notifyCall struct {
+	orderID int
+	message string
+}
+
+func (s *fakeNotificationSender) Send(_ context.Context, orderID int, message string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, notifyCall{orderID: orderID, message: message})
+}
+
+// sentTo returns the message sent for orderID, if any.
+func (s *fakeNotificationSender) sentTo(orderID int) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.calls {
+		if c.orderID == orderID {
+			return c.message, true
+		}
+	}
+	return "", false
 }
 
 // --- test gateways ----------------------------------------------------------
@@ -176,7 +209,8 @@ func TestFulfill_Success(t *testing.T) {
 	store.seed(1, 10, 2, 50)
 	store.stock[10] = 8 // post-reservation level
 	gw := newOKGateway()
-	f := NewFulfiller(testCfg(), gw, store, store)
+	sender := &fakeNotificationSender{}
+	f := NewFulfiller(testCfg(), gw, store, store, sender)
 
 	f.Fulfill(1)
 
@@ -195,6 +229,11 @@ func TestFulfill_Success(t *testing.T) {
 	if n := gw.chargeCount("key-1"); n != 1 {
 		t.Errorf("charge count = %d, want 1", n)
 	}
+
+	// A confirmed order sends exactly one notification for that order.
+	if _, ok := sender.sentTo(1); !ok {
+		t.Error("expected a notification sent for order 1")
+	}
 }
 
 func TestFulfill_RetryExhaustionCancelsAndRestocks(t *testing.T) {
@@ -203,7 +242,7 @@ func TestFulfill_RetryExhaustionCancelsAndRestocks(t *testing.T) {
 	store.stock[10] = 8
 	gw := &countingFailGateway{}
 	cfg := testCfg()
-	f := NewFulfiller(cfg, gw, store, store)
+	f := NewFulfiller(cfg, gw, store, store, &fakeNotificationSender{})
 
 	f.Fulfill(1)
 
@@ -232,7 +271,7 @@ func TestFulfill_DuplicateChargesOnce(t *testing.T) {
 	store.seed(1, 10, 1, 10)
 	store.stock[10] = 5
 	gw := newOKGateway()
-	f := NewFulfiller(testCfg(), gw, store, store)
+	f := NewFulfiller(testCfg(), gw, store, store, &fakeNotificationSender{})
 
 	f.Fulfill(1)
 	f.Fulfill(1) // already paid -> ErrNoPendingPayment -> no-op
@@ -257,7 +296,7 @@ func TestFulfill_FakeGatewayInvariants(t *testing.T) {
 	}
 	const seededStock = 1000 // already net of the n reservations
 	store.stock[10] = seededStock
-	f := NewFulfiller(testCfg(), payment.NewFakeGateway(0.4), store, store)
+	f := NewFulfiller(testCfg(), payment.NewFakeGateway(0.4), store, store, &fakeNotificationSender{})
 
 	for i := 1; i <= n; i++ {
 		f.Fulfill(i)

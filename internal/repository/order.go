@@ -18,15 +18,22 @@ type OrderRepository interface {
 	// processing, or gorm.ErrRecordNotFound once it has reached a terminal state.
 	GetPendingByOrderID(ctx context.Context, orderID int) (models.Payment, error)
 
+	// GetOrderUserID returns the id of the user who owns the order, or
+	// apperrors.ErrOrderNotFound if no such order exists. It backs the ownership
+	// check on the per-order notification WebSocket subscription.
+	GetOrderUserID(ctx context.Context, orderID int) (int, error)
+
 	// MarkPaidAndConfirm records a successful charge: payment -> paid (with the
 	// provider transaction id) and order -> confirmed, in one transaction. The
-	// payment update is guarded on status='pending' so it applies at most once.
-	MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) error
+	// payment update is guarded on status='pending' so it applies at most once;
+	// the bool reports whether this call is the one that performed the transition.
+	MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) (bool, error)
 
 	// FailCancelAndRestock records a terminal payment failure: payment -> failed,
 	// order -> cancelled, and the reserved inventory is released — in one
-	// transaction. The payment guard ensures the restock runs at most once.
-	FailCancelAndRestock(ctx context.Context, payment models.Payment) error
+	// transaction. The payment guard ensures the restock runs at most once; the
+	// bool reports whether this call is the one that performed the transition.
+	FailCancelAndRestock(ctx context.Context, payment models.Payment) (bool, error)
 
 	// ListStalePending returns the order ids whose payment has been pending longer
 	// than olderThan, oldest first and capped at limit, so the sweeper can
@@ -102,8 +109,23 @@ func (r *orderRepository) GetPendingByOrderID(ctx context.Context, orderID int) 
 	return payment, err
 }
 
-func (r *orderRepository) MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+func (r *orderRepository) GetOrderUserID(ctx context.Context, orderID int) (int, error) {
+	var order models.Order
+	err := r.db.WithContext(ctx).
+		Select("id", "user_id").
+		First(&order, orderID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, apperrors.ErrOrderNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return order.UserID, nil
+}
+
+func (r *orderRepository) MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) (bool, error) {
+	transitioned := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Guarded transition: only the worker that flips pending->paid proceeds to
 		// advance the order. A concurrent worker or sweep affects zero rows.
 		res := tx.Exec(
@@ -117,16 +139,21 @@ func (r *orderRepository) MarkPaidAndConfirm(ctx context.Context, payment models
 			// Already finalized elsewhere; nothing left to do.
 			return nil
 		}
+		transitioned = true
 
 		return tx.Exec(
 			"UPDATE orders SET status = ?, updated_at = now() WHERE id = ? AND status = ?",
 			models.OrderStatusConfirmed, payment.OrderID, models.OrderStatusPending,
 		).Error
 	})
+	// transitioned is only meaningful when err is nil: a later failure in the txn
+	// rolls the payment update back, and the caller checks err before the bool.
+	return transitioned, err
 }
 
-func (r *orderRepository) FailCancelAndRestock(ctx context.Context, payment models.Payment) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+func (r *orderRepository) FailCancelAndRestock(ctx context.Context, payment models.Payment) (bool, error) {
+	transitioned := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// The payment guard gates the whole transaction so the order is cancelled
 		// and the stock released exactly once, even under a worker/sweeper overlap.
 		res := tx.Exec(
@@ -139,6 +166,7 @@ func (r *orderRepository) FailCancelAndRestock(ctx context.Context, payment mode
 		if res.RowsAffected != 1 {
 			return nil
 		}
+		transitioned = true
 
 		if err := tx.Exec(
 			"UPDATE orders SET status = ?, updated_at = now() WHERE id = ? AND status = ?",
@@ -161,6 +189,7 @@ func (r *orderRepository) FailCancelAndRestock(ctx context.Context, payment mode
 		}
 		return nil
 	})
+	return transitioned, err
 }
 
 func (r *orderRepository) ListStalePending(ctx context.Context, olderThan time.Duration, limit int) ([]int, error) {

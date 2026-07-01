@@ -15,6 +15,7 @@ import (
 	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
 	"github.com/MohamedShetewi/order-processing-system/internal/repository"
 	"github.com/MohamedShetewi/order-processing-system/internal/services"
+	"github.com/MohamedShetewi/order-processing-system/internal/ws"
 )
 
 // handlerSet holds the constructed HTTP handlers plus the shared token manager
@@ -24,13 +25,14 @@ type handlerSet struct {
 	user    *handlers.UserHandler
 	product *handlers.ProductHandler
 	order   *handlers.OrderHandler
+	ws      *handlers.WebSocketHandler
 }
 
 // NewRouter builds the dependency graph and returns the configured HTTP handler.
 // processor is the asynchronous order-fulfillment seam (the worker pool in
 // production, a noop in tests).
-func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, processor services.OrderProcessor) http.Handler {
-	h := buildHandlers(cfg, db, idemStore, processor)
+func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, processor services.OrderProcessor, hub *ws.Hub) http.Handler {
+	h := buildHandlers(cfg, db, idemStore, processor, hub)
 
 	r := gin.New()
 
@@ -45,6 +47,10 @@ func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, pro
 	registerUserRoutes(v1, h.user)
 	registerProductRoutes(v1, h.product, h.tokens)
 	registerOrderRoutes(v1, h.order, h.tokens)
+	// Per-order notification stream. Registered outside the authenticated /orders
+	// group: browsers can't send an Authorization header on a WS handshake, so the
+	// handler authenticates from the Sec-WebSocket-Protocol subprotocol instead.
+	v1.GET("/orders/:id/subscribe", h.ws.Connect)
 
 	registerFallbacks(r)
 
@@ -52,7 +58,7 @@ func NewRouter(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, pro
 }
 
 // buildHandlers wires repositories, services, and handlers together.
-func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, processor services.OrderProcessor) handlerSet {
+func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store, processor services.OrderProcessor, hub *ws.Hub) handlerSet {
 	tokenManager := auth.NewJWTManager(cfg.JWT.Secret, cfg.JWT.TTL)
 
 	userRepo := repository.NewUserRepository(db)
@@ -62,6 +68,7 @@ func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store,
 	productService := services.NewProductService(productRepo)
 
 	orderRepo := repository.NewOrderRepository(db)
+	notificationRepo := repository.NewNotificationRepository(db)
 	orderService := services.NewOrderService(
 		orderRepo,
 		productRepo,
@@ -74,6 +81,7 @@ func buildHandlers(cfg *config.Config, db *gorm.DB, idemStore idempotency.Store,
 		user:    handlers.NewUserHandler(userService),
 		product: handlers.NewProductHandler(productService),
 		order:   handlers.NewOrderHandler(orderService),
+		ws:      handlers.NewWebSocketHandler(hub, tokenManager, orderRepo, notificationRepo),
 	}
 }
 

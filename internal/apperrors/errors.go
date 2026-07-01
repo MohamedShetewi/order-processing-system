@@ -8,6 +8,7 @@ import (
 // Sentinel domain errors. Handlers map these to HTTP status codes via errors.Is.
 var (
 	ErrUserNotFound       = errors.New("user not found")
+	ErrOrderNotFound      = errors.New("order not found")
 	ErrDuplicateOrder     = errors.New("duplicate order")
 	ErrDuplicateLineItem  = errors.New("duplicate line item")
 	ErrInvalidCredentials = errors.New("invalid email or password")

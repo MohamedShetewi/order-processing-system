@@ -9,6 +9,7 @@ package fulfillment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -24,33 +25,42 @@ import (
 // The concrete repository.OrderRepository satisfies it.
 type OrderStore interface {
 	GetPendingByOrderID(ctx context.Context, orderID int) (models.Payment, error)
-	FailCancelAndRestock(ctx context.Context, payment models.Payment) error
+	FailCancelAndRestock(ctx context.Context, payment models.Payment) (bool, error)
 }
 
 // PaymentStore records a successful charge: payment -> paid (with the provider
 // transaction id) and order -> confirmed. The concrete repository.OrderRepository
 // satisfies it.
 type PaymentStore interface {
-	MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) error
+	MarkPaidAndConfirm(ctx context.Context, payment models.Payment, txnID string) (bool, error)
+}
+
+// NotificationSender records and delivers a terminal-status message for an
+// order; it owns persistence and delivery entirely. The concrete
+// services.NotificationService satisfies it.
+type NotificationSender interface {
+	Send(ctx context.Context, orderID int, message string)
 }
 
 // Fulfiller takes a single order from pending to a terminal state. It is the
 // per-order business logic the worker pool runs concurrently.
 type Fulfiller struct {
-	cfg      config.WorkerConfig
-	gw       payment.Gateway
-	orders   OrderStore
-	payments PaymentStore
+	cfg           config.WorkerConfig
+	gw            payment.Gateway
+	orders        OrderStore
+	payments      PaymentStore
+	notifications NotificationSender
 }
 
 // NewFulfiller constructs a Fulfiller. The same concrete order repository
 // typically satisfies both OrderStore and PaymentStore.
-func NewFulfiller(cfg config.WorkerConfig, gw payment.Gateway, orders OrderStore, payments PaymentStore) *Fulfiller {
+func NewFulfiller(cfg config.WorkerConfig, gw payment.Gateway, orders OrderStore, payments PaymentStore, notifications NotificationSender) *Fulfiller {
 	return &Fulfiller{
-		cfg:      cfg,
-		gw:       gw,
-		orders:   orders,
-		payments: payments,
+		cfg:           cfg,
+		gw:            gw,
+		orders:        orders,
+		payments:      payments,
+		notifications: notifications,
 	}
 }
 
@@ -74,16 +84,29 @@ func (f *Fulfiller) Fulfill(orderID int) {
 	defer cancel()
 
 	if chargeErr != nil {
-		if err := f.orders.FailCancelAndRestock(ctx, pay); err != nil {
+		transitioned, err := f.orders.FailCancelAndRestock(ctx, pay)
+		if err != nil {
 			log.Printf("worker: fail/cancel order %d: %v", orderID, err)
+			return
+		}
+		if transitioned {
+			// Notifications are best-effort and only fire when this worker performed
+			// the transition, so the message always matches the real terminal state
+			// and fires exactly once. Shares the finalize step's timeout budget.
+			f.notifications.Send(ctx, orderID, fmt.Sprintf("Order #%d was cancelled: payment could not be processed.", orderID))
 		}
 		return
 	}
 
-	if err := f.payments.MarkPaidAndConfirm(ctx, pay, result.TransactionID); err != nil {
+	transitioned, err := f.payments.MarkPaidAndConfirm(ctx, pay, result.TransactionID)
+	if err != nil {
 		// The charge succeeded but persistence failed; the sweeper will re-run and
 		// the gateway replays the same idempotency key without re-charging.
 		log.Printf("worker: mark paid order %d: %v", orderID, err)
+		return
+	}
+	if transitioned {
+		f.notifications.Send(ctx, orderID, fmt.Sprintf("Order #%d is confirmed. Payment received.", orderID))
 	}
 }
 
