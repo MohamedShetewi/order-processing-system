@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-processing-config
+data:
+  SERVER_PORT: "8080"
+  SERVER_HOST: "0.0.0.0"
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: postgres
+  DB_NAME: order_processing
+  DB_SSLMODE: disable
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  LOG_LEVEL: info
+  LOG_FORMAT: json
+  WORKER_COUNT: "5"
+  WORKER_QUEUE_SIZE: "256"
+  WORKER_MAX_RETRIES: "3"
+  WORKER_BASE_BACKOFF: 200ms
+  WORKER_MAX_BACKOFF: 5s
+  WORKER_ATTEMPT_TIMEOUT: 5s
+  WORKER_SWEEP_INTERVAL: 30s
+  WORKER_STALE_AFTER: 1m
+  WORKER_SWEEP_BATCH_SIZE: "100"
+  WORKER_GATEWAY_FAILURE_RATE: "0.2"
+  SHUTDOWN_TIMEOUT: 10s
