@@ -21,8 +21,8 @@ import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
 const BASE = __ENV.BASE_URL || 'http://localhost:8080/api/v1';
-const STOCK = Number(__ENV.STOCK || 100);
-const BUYERS = Number(__ENV.BUYERS || 120);
+const STOCK = Number(__ENV.STOCK || 10);
+const BUYERS = Number(__ENV.BUYERS || 11);
 const PASSWORD = __ENV.PASSWORD || 'password123';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };

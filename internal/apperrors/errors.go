@@ -13,6 +13,11 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 )
 
+// ErrNoPendingPayment is returned when an order has no payment awaiting
+// processing — it was already finalized (paid/failed) or never existed. The
+// fulfillment worker treats it as a no-op rather than an error.
+var ErrNoPendingPayment = errors.New("no pending payment for order")
+
 // ProductNotFoundError is returned when an order references a product that does
 // not exist. Handlers map it to 404 via errors.As.
 type ProductNotFoundError struct {

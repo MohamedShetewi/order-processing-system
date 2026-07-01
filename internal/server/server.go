@@ -19,6 +19,7 @@ import (
 
 	"github.com/MohamedShetewi/order-processing-system/internal/api/routes"
 	"github.com/MohamedShetewi/order-processing-system/internal/config"
+	"github.com/MohamedShetewi/order-processing-system/internal/fulfillment"
 	"github.com/MohamedShetewi/order-processing-system/internal/idempotency"
 	"github.com/MohamedShetewi/order-processing-system/internal/payment"
 	"github.com/MohamedShetewi/order-processing-system/internal/repository"
@@ -66,8 +67,12 @@ func New(cfg *config.Config) (*Server, error) {
 	// order service hands created orders off to it.
 	orderRepo := repository.NewOrderRepository(db)
 	gateway := payment.NewFakeGateway(cfg.Worker.GatewayFailureRate)
-	pool := workers.NewPool(cfg.Worker, gateway, orderRepo)
+	fulfiller := fulfillment.NewFulfiller(cfg.Worker, gateway, orderRepo, orderRepo)
+	pool := workers.NewPool(cfg.Worker, fulfiller)
 	pool.Start()
+
+	sweeper := workers.NewSweeper(cfg.Worker, orderRepo, pool)
+	sweeper.Start()
 
 	router := routes.NewRouter(cfg, db, idemStore, pool)
 
@@ -78,9 +83,12 @@ func New(cfg *config.Config) (*Server, error) {
 		cfg:  cfg,
 		http: httpSrv,
 		// Stop order is load-bearing: HTTP drains first so no new orders reach a
-		// stopping pool; the pool drains before the DB/Redis it writes to are closed.
+		// stopping pool; the sweeper stops before the pool so it can't send on the
+		// pool's jobs channel after Pool.Stop closes it; the pool drains before the
+		// DB/Redis it writes to are closed.
 		stoppers: []Stopper{
 			httpStopper{srv: httpSrv, timeout: cfg.Worker.ShutdownTimeout},
+			sweeper,
 			pool,
 			dbStopper{db: db},
 			redisStopper{client: redisClient},

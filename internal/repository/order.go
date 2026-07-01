@@ -11,11 +11,6 @@ import (
 	"github.com/MohamedShetewi/order-processing-system/internal/models"
 )
 
-// ErrNoPendingPayment is returned by GetPendingByOrderID when the order has no
-// payment awaiting processing — it was already finalized (paid/failed) or never
-// existed. Callers treat it as a no-op rather than an error.
-var ErrNoPendingPayment = errors.New("repository: no pending payment for order")
-
 type OrderRepository interface {
 	CreateOrder(ctx context.Context, order *models.Order, payment *models.Payment) error
 
@@ -102,7 +97,7 @@ func (r *orderRepository) GetPendingByOrderID(ctx context.Context, orderID int) 
 		Where("order_id = ? AND status = ?", orderID, models.PaymentStatusPending).
 		First(&payment).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return models.Payment{}, ErrNoPendingPayment
+		return models.Payment{}, apperrors.ErrNoPendingPayment
 	}
 	return payment, err
 }
